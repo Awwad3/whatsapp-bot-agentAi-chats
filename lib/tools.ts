@@ -1,3 +1,4 @@
+// lib/tools.ts
 const voiceResponses: Record<string, string> = {
   greeting: 'https://example.com/audio/greeting.mp3',
   thanks: 'https://example.com/audio/thanks.mp3',
