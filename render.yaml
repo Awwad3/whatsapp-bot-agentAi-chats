@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: whatsapp-agent-bot
+    env: node
+    buildCommand: npm install
+    startCommand: npm run start
+    envVars:
+      - key: OPENAI_API_KEY
+        value: sk-xxxx
+      - key: TWILIO_SID
+        value: ACxxxx
+      - key: TWILIO_TOKEN
+        value: your_twilio_token
+      - key: TWILIO_NUMBER
+        value: whatsapp:+14155238886
