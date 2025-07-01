@@ -1,12 +1,15 @@
 // pages/api/webhook.ts
+
 import type { NextApiRequest, NextApiResponse } from 'next';
 import dotenv from 'dotenv';
 dotenv.config();
 
 import { twiml as TwilioTwiml } from 'twilio';
-import { agent } from '../../lib/openaiAgent';
 import getRawBody from 'raw-body';
+import { run as runAgent } from '@openai/agents';
+import { agent } from '../../lib/openaiAgent';
 
+// تعطيل body parser لأن Twilio يرسل x-www-form-urlencoded
 export const config = {
   api: {
     bodyParser: false,
@@ -14,38 +17,52 @@ export const config = {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // فقط POST مسموح
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).end('Method Not Allowed');
   }
 
   try {
+    // قراءة البيانات الخام
     const rawBody = await getRawBody(req);
     const data = rawBody.toString();
     const params = new URLSearchParams(data);
 
-    const userMessage = params.get('Body');
-    const fromNumber = params.get('From');
+    // استخراج الرسالة والمرسل
+    const message = params.get('Body')?.trim();
+    const from = params.get('From')?.trim();
 
     const messagingResponse = new TwilioTwiml.MessagingResponse();
 
-    if (!userMessage || !fromNumber) {
-      messagingResponse.message('عذرًا، لم أفهم الرسالة المرسلة.');
-      res.status(200).setHeader('Content-Type', 'text/xml').send(messagingResponse.toString());
-      return;
+    // التحقق من صحة البيانات
+    if (!message || !from) {
+      messagingResponse.message('❌ لم يتم التعرف على الرسالة أو المرسل.');
+      return res.status(200).setHeader('Content-Type', 'text/xml').send(messagingResponse.toString());
     }
 
-    // تحليل الرسالة باستخدام OpenAI Agent
-    const { finalOutput } = await import('@openai/agents').then(({ run }) => run(agent, userMessage));
-    const reply = finalOutput || 'عذرًا، لم أتمكن من الرد الآن.';
+    // ✅ تسجيل الرسالة للمتابعة (يمكن تخزينها لاحقًا في قاعدة بيانات)
+    console.log(`📩 رسالة جديدة من: ${from}`);
+    console.log(`💬 المحتوى: ${message}`);
 
+    // تشغيل نموذج الذكاء الاصطناعي للرد
+    let reply = 'عذرًا، لم أتمكن من معالجة الرسالة.';
+
+    try {
+      const { finalOutput } = await runAgent(agent, message);
+      reply = finalOutput || reply;
+    } catch (aiErr) {
+      console.error('❗ فشل تحليل الرسالة عبر OpenAI:', aiErr);
+      reply = 'حدث خطأ أثناء تحليل الرسالة باستخدام الذكاء الاصطناعي.';
+    }
+
+    // إرسال الرد
     messagingResponse.message(reply);
-
-    res.status(200).setHeader('Content-Type', 'text/xml').send(messagingResponse.toString());
-  } catch (error) {
-    console.error('Error processing message:', error);
+    return res.status(200).setHeader('Content-Type', 'text/xml').send(messagingResponse.toString());
+  } catch (err) {
+    console.error('❗ خطأ أثناء معالجة الطلب:', err);
     const messagingResponse = new TwilioTwiml.MessagingResponse();
-    messagingResponse.message('حدث خطأ أثناء معالجة الرسالة.');
-    res.status(500).setHeader('Content-Type', 'text/xml').send(messagingResponse.toString());
+    messagingResponse.message('حدث خطأ داخلي أثناء معالجة الرسالة.');
+    return res.status(500).setHeader('Content-Type', 'text/xml').send(messagingResponse.toString());
   }
 }
